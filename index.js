@@ -48,7 +48,19 @@ client.connect().then(() => {
       const { id_dataset } = req.params;
       const dataset = await collection.findOne({ _id: new ObjectId(id_dataset) });
       if (dataset) {
-        res.json(dataset);
+        const csvData = dataset.file.buffer.toString('utf8');
+        const [headerLine, ...lines] = csvData.split('\n');
+        const headers = headerLine.split(',');
+
+        const jsonData = lines.map(line => {
+          const values = line.split(',');
+          return headers.reduce((obj, header, index) => {
+            obj[header] = values[index];
+            return obj;
+          }, {});
+        });
+
+        res.json(jsonData);
       } else {
         res.status(404).send('Dataset não encontrado');
       }
