@@ -126,6 +126,8 @@ async function match_page(page, match_id, time) {
     });
     const homeTeam = await page.$eval('div.duelParticipant__home', el => el.innerText);
     const awayTeam = await page.$eval('div.duelParticipant__away', el => el.innerText);
+    const logoHome = await page.$eval('#detail > div.duelParticipant > div.duelParticipant__home > a > img', el => el.src);
+    const logoAway = await page.$eval('#detail > div.duelParticipant > div.duelParticipant__away > a > img', el => el.src);
     const score = await page.$eval('div.detailScore__wrapper', el => el.innerText);
     const date_match = await page.$eval('div.duelParticipant__startTime', el => el.innerText.split(' ')[0]);
     const [fthg, ftag] = score.split('\n-\n');
@@ -136,6 +138,8 @@ async function match_page(page, match_id, time) {
         'Match_ID': match_id,
         'Round': round,
         'Date': date_match,
+        'LogoHome': logoHome,
+        'LogoAway': logoAway,
         'HomeTeam': homeTeam,
         'AwayTeam': awayTeam,
         'FTHG': fthg,
@@ -160,6 +164,8 @@ function saveToCSV(dados, nome_arquivo, collection, country, tournament, season,
         'Match_ID': '',
         'Round': '',
         'Date': '',
+        'LogoHome': '',
+        'LogoAway': '',
         'HomeTeam': '',
         'AwayTeam': '',
         'FTHG': '',
@@ -233,6 +239,91 @@ async function sendToMongo(collection, data) {
     }
 }
 
+async function get_next_rounds(collection, country, tournament, season) {
+    // svg.liveBet 
+    // https://www.flashscore.com/football/brazil/serie-a/fixtures/
+    const browser = await puppeteer.launch({
+        headless: true,
+        args: [
+            '--no-sandbox',
+            '--disable-gpu',
+        ]
+    });
+    const page = await browser.newPage();
+    
+    console.log("Abrindo Browser")
+    await page.setViewport({ width: 1366, height: 768 });
+    
+    const dados = [];
+    const response = await page.goto(`https://www.flashscore.com/football/${country}/${tournament}-${season}/fixtures/`);
+    console.log(`https://www.flashscore.com/football/${country}/${tournament}-${season}/fixtures/`)
+    if (response.ok()) {
+        const eventos = (await page.$$('div.event__match--twoLine'));
+        for (evento of eventos) {
+            try {
+                const liveBetExists = await evento.$('svg.liveBet') !== null;
+                if (liveBetExists) {
+                    const date = await evento.$eval('div.event__time', el => el.innerText);
+                    const logoHome = await evento.$eval('div.event__homeParticipant > img', el => el.src);
+                    const logoAway = await evento.$eval('div.event__awayParticipant > img', el => el.src);
+                    const home = await evento.$eval('div.event__homeParticipant', el => el.innerText);
+                    const away = await evento.$eval('div.event__awayParticipant', el => el.innerText);
+                    
+                    dados.push({
+                        date: date,
+                        logoHome: logoHome,
+                        logoAway: logoAway,
+                        home: home,
+                        away: away
+                    });
+                }
+            } catch (error) {
+                console.log(error);
+            }
+        }
+        saveNextRounds(dados, tournament, collection, country, tournament, season);
+    }
+    console.log("Fechando Browser")
+    await browser.close();
+    return dados;
+}
+
+function saveNextRounds(dados, nome_arquivo, collection, country, tournament, season) {
+    let headerPadrao = {
+        'Match_ID': '',
+        'Round': '',
+        'Date': '',
+        'LogoHome': '',
+        'LogoAway': '',
+        'HomeTeam': '',
+        'AwayTeam': '',
+    };
+
+    // Criar o cabeçalho com base no jogo com mais estatísticas
+    const header = Object.keys(headerPadrao).join(',') + '\n';
+    // Criar as linhas, adicionando 'N/A' para estatísticas ausentes
+    const rows = dados.map(match => {
+        return Object.keys(headerPadrao).map(key => {
+            return match[key] || '-';
+        }).join(',');
+    }).join('\n');
+
+    const csvContent = header + rows;
+    const filename = `${nome_arquivo}-${season}-.csv`;
+    fs.writeFileSync(filename, csvContent, 'utf8');
+    // Mover a importação para dentro da função
+    data_mongo = {
+        '_id': new ObjectId(),
+        'filename': filename,
+        'file': fs.readFileSync(filename),
+        'country': country,
+        'tournament': tournament,
+        'season': season,
+    }
+    sendToMongo(collection, data_mongo);
+    fs.unlinkSync(filename);
+}
+
 async function verify_and_get_exists_dataset(collection, country, tournament, season, time) {
     try {
       const result = await collection.findOne({ country, tournament, season, time });
@@ -249,5 +340,6 @@ async function verify_and_get_exists_dataset(collection, country, tournament, se
   
 
 module.exports = {
-    scraping
+    scraping,
+    get_next_rounds
 };

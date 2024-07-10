@@ -16,12 +16,23 @@ const client = new MongoClient(uri, {
 });
 const database = client.db("flashstat");
 const collection = database.collection("scraping-data");
+const next_col = database.collection("next-rounds");
 
 app.get('/extracao/:country/:league/:season/:time', async (req, res) => {
   try {
     const { country, league, season, time } = req.params;
     await scraping.scraping(country, league, season, time, collection);
     res.send('Extração de dados realizada com sucesso');
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Erro na extração de dados');
+  }
+});
+app.get('/next_rounds/:country/:league/:season/', async (req, res) => {
+  try {
+      const { country, league, season } = req.params;
+      const response = await scraping.get_next_rounds(next_col, country, league, season);
+      res.send(response);
   } catch (error) {
     console.error(error);
     res.status(500).send('Erro na extração de dados');
@@ -34,6 +45,11 @@ app.get('/listar_datasets', async (req, res) => {
     res.json(datasets.map(dataset => ({
       id: dataset._id,
       filename: dataset.filename,
+      tournament: dataset.tournament,
+      country: dataset.country,
+      league: dataset.league,
+      season: dataset.season,
+      time: dataset.time,
       status: dataset.status,
     })));
   } catch (error) {
