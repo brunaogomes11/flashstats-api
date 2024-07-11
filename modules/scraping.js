@@ -17,6 +17,7 @@ async function loadCSV(filePath) {
 
 async function scraping(country, tournament, season, time, collection) {
     const browser = await puppeteer.launch({
+        executablePath: process.env.NODE_ENV === 'production' ? process.env.PUPPETEER_EXECUTABLE_PATH : puppeteer.executablePath(),
         headless: true,
         args: [
             '--no-sandbox',
